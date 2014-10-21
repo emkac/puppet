@@ -1,0 +1,241 @@
+Prérequis
+
+Serveur gluterfs primaire 10.100.30.146.
+Serveur gluterfs secondaire 10.100.30.147.
+Client gluterfs 10.100.30.148.
+Serveur puppet 10.100.30.149.
+Mise en place puppet
+Serveur puppet
+
+Le serveur puppet est installer sur Débian7 .
+
+Il faut déjà penser a télécharger la dernière version du serveur depuis le site officiel de puppet.
+
+https://apt.puppetlabs.com/puppetlabs-release-wheezy.deb
+
+Cette page vous offres toutes les instructions pour réaliser une bonne installation du serveur puppet .
+
+La répétition étant pédagogique , voici les commandes a taper pour avoir la dernière version du serveur puppet installé.
+
+sudo dpkg -i puppetlabs-release-precise.deb.
+sudo apt-get update.
+ouvrir /etc/apt/sources.list.d/puppetlabs.list et décommanter la ligne qui débute par deb et fini par devel.
+# Puppetlabs devel (uncomment to activate).
+deb http://apt.puppetlabs.com precise devel.
+# deb-src http://apt.puppetlabs.com precise devel.
+sudo apt-get install puppetmaster-passenger.
+sudo apt-get install puppetmaster.
+Agents  puppet
+
+Pour installer puppet agent sur les futures serveurs glusterfs et clients glusterfs, il faut taper les commandes suivantes:
+
+sudo apt-get install puppet.
+Éditer le fichier  /etc/init.d/puppet puis mettre yes a la place de no pour démarrer le service au démarrage du système d'exploitation.
+sudo apt-get update.
+sudo puppet resource package puppet ensure=latest.
+
+Configuration
+
+Les fichiers /etc/hosts des agents et du master doivent contenir les memes instruction: l'adresse ip FQDN CNAME des autres serveurs et clients.
+
+Il faut insérer le FQDN du serveur dans le bloc [main] des fichiers de configuration /etc/puppet/puppet.conf du serveur et des agents comme ceci:
+
+vi /etc/puppet/puppet.conf
+server=FQDN  ( exemple server = puppet.smile.ci)
+
+Connexion et signatures des agents puppet
+
+Depuis les agents, il faut lancer la commande :
+
+puppet agent --test --server=puppet.smile.ci dv
+
+Depuis le serveur, il faut lister les agents qui sont en ettente de certification par la commande:
+
+puppet cert list
+
+Pour signer le certificat pour un agent bien preci, on utilise la commande:
+
+puppet cert signe "le nom de l'agent" pour signer le certificat.
+
+Arborescence serveur puppet
+
+/etc/puppet/
+
+|-- auth.conf
+
+|-- environments
+
+| `-- example_env
+
+| |-- README.environment
+
+| |-- manifests
+
+| `-- modules
+
+|-- etckeeper-commit-post
+
+|-- etckeeper-commit-pre
+
+|-- fileserver.conf
+
+|--.
+
+manifests
+
+| |-- nodes.pp
+
+| `-- site.pp
+
+|--
+
+modules
+
+| |-- glusterfs
+
+| | `-- manifests
+
+| | `-- init.pp
+
+| |-- glusterfs2
+
+| | `-- manifests
+
+| | `-- init.pp
+
+| |-- glusterfsclient
+
+| | `-- manifests
+
+| | |-- init.pp
+
+| | `-- init.pp.1 |-- puppet.conf |-- puppet.conf.dpkg-old
+
+-- templates
+
+Les fichiers en italique sont les repectoires ( modules ) dans lesquels nous trouvons les classes.
+
+Les fichiers en gras sont les classes qui contiennes des instructions qui seront lues par puppet.
+
+Le fichier site.pp contient une seule instruction a savoir : import 'nodes.pp' .
+
+Le fichier nodes.pp contiens une instruction a savoir include "le nom de la classe".
+création module
+module glusterfs-server 1
+
+Commencer par creer les repectoires : /modules/glusterfs/manifests depuis /etc/puppet.
+
+Dans le dossier manifests, il faut creer le fichier init.pp qui contient l'ensembles des instructions repartir en classe.
+
+#debut install glusterfs
+class glusterfs{
+$serveur = hiera("serveur")
+package { "$serveur":
+ensure => '3.2.7-3+deb7u1',
+}
+# fin install glusterfs
+#debut du demarage
+$service = hiera("service")
+service {"$service":
+enable => true,
+ensure => running,
+hasrestart => true,
+hasstatus => true,
+require => Package["$serveur"],
+}
+}
+
+module glusterfs-server 2
+
+#debut install glusterfs
+class glusterfs{
+$serveur = hiera("serveur")
+package { "$serveur":
+ensure => '3.2.7-3+deb7u1',
+}
+# fin install glusterfs
+#debut du demarage
+$service = hiera("service")
+service {"$service":
+enable => true,
+ensure => running,
+hasrestart => true,
+hasstatus => true,
+require => Package["$serveur"],
+}
+$fqdn = hiera("fqdn")
+$fqdn1 = hiera("fqdn1")
+exec {"peer":
+command => "/usr/sbin/gluster peer probe $fqdn"
+}
+exec { "connect":
+command => "/usr/sbin/gluster peer status"
+}
+$creatV = hiera("creatV")
+exec { "creat":
+command => "gluster volume create $creatV replica 2 transport tcp $fqdn1:/data $fqdn:/data",
+cwd => "/root" ,
+path => "/usr/sbin/",
+group => "root",
+user => "root"
+}
+exec { "start":
+command => "gluster volume start $creatV",
+cwd => "/root/",
+path => "/usr/sbin/",
+group => "root",
+user => "root",
+}
+}
+
+module glusterfs-client
+
+#class glusterfs-clent
+# install glusterfs
+class glusterfsclient{
+$client = hiera("client")
+package { "$client":
+ensure => '3.2.7-3+deb7u1',
+}
+}
+#fin install
+#Class repectoire
+$creatV = hiera("creatV")
+$fqdn1 = hiera("fqdn1")
+$mount = hiera("mount")
+class dir {
+file {"/mnt/glusterfs":
+ensure => "present",
+}
+exec {"mount":
+command =>  "mount -t glusterfs  $fqdn1:/$creatV /mnt/glusterfs",
+path => "/bin/",
+cwd => "/root" ,
+group => "root",
+user => "root"
+}
+
+Hiérarchie puppet
+hiera.yaml
+
+ce fichier contient l'ensemble des répertoires a consulter par le serveur puppet afin de comprendre le sens des variables définies dans la réalisation des modules.
+
+Ce fichier contient une instruction qui nous permet de définir plus facilement nos variables.
+
+# When specifying a datadir, make sure the directory exists.
+
+On créer donc un répertoire hiera qui contiendra l'ensemble de nos variables.
+
+:datadir: /etc/puppet/hiera
+hiera
+
+dans le répertoire hiera, il faut créer un fichier common.yaml qui contiendra l'ensemble des variable utilisées pour écrire les modules
+
+serveur: glusterfs-server
+service: glusterfs-server
+client: glusterfs-client
+mount: /mnt/glusterfs
+type: glusterfs
+fqdn:  SG2.smileci.lan
+fqdn1: SG1.smileci.lan
+creatV: testvol
