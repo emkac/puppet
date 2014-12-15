@@ -1,2 +1,4 @@
 clush -l puppet -w hostname-server  id 
-cette commande sert a lancer des commandes a distance sur le serveur specifier par son hostname
+cette commande sert a lancer des commandes a distance sur le serveur specifier par son hostname ou id est un test
+clush -l puppet -w hostname-server  sudo puppet agent -tdv
+
